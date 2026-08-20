@@ -10,10 +10,9 @@ fn main() {
         gpui_component::init(cx);
         cx.spawn(async move |cx| {
             let mut opts = TitleBar::window_options();
-            opts.titlebar = Some(TitlebarOptions {
-                title: Some("Transform Video".into()),
-                ..Default::default()
-            });
+            if let Some(tb) = opts.titlebar.as_mut() {
+                tb.title = Some("Transform Video".into());
+            }
             let window = cx
                 .open_window(opts, |window, cx| {
                     let view = MainWindow::new(window, cx);

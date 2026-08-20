@@ -102,6 +102,8 @@ impl AppState {
         self.handle = Some(crate::transcode::run_job(config, tx));
         self.status = Status::Preparing;
         self.percent = 0.0;
+        self.elapsed_secs = 0.0;
+        self.eta_secs = 0.0;
         self.logs.clear();
         self.output_root = None;
         cx.notify();
@@ -199,10 +201,16 @@ mod tests {
 
     #[test]
     fn build_config_invalid_without_variants() {
+        let f = tempfile::NamedTempFile::new().unwrap();
         let s = AppState {
             enabled_variants: [false, false, false],
+            input_path: Some(f.path().to_path_buf()),
+            output_dir: Some(std::env::temp_dir()),
             ..AppState::default()
         };
-        assert!(s.build_config().validate().is_err());
+        assert_eq!(
+            s.build_config().validate().unwrap_err(),
+            "至少需要启用一档分辨率"
+        );
     }
 }
