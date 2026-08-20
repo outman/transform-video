@@ -101,3 +101,20 @@ fn cancel_removes_partial_output() {
     assert!(matches!(result, Err(pipeline::Outcome::Canceled)));
     assert!(!cfg.output_root().exists());
 }
+
+#[test]
+fn transcodes_three_variants_with_interleaving() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = JobConfig {
+        variants: JobConfig::default().variants,
+        force_software: true,
+        ..config(dir.path(), true)
+    };
+    let (result, _rx) = run(&cfg, &AtomicBool::new(false));
+    let root = result.expect("应成功");
+    for name in ["1080p", "720p", "480p", "audio"] {
+        assert!(root.join(name).join("index.m3u8").is_file(), "缺 {name}");
+    }
+    let master = std::fs::read_to_string(root.join("master.m3u8")).unwrap();
+    assert!(master.contains("1080p/") && master.contains("720p/") && master.contains("480p/"));
+}

@@ -150,7 +150,8 @@ struct AudioProbe {
 
 struct Probe {
     video: VideoProbe,
-    /// None = 输入无音频流、音频解码器打不开或 400 包内解不出音频帧(按无音频处理)
+    /// None = 输入无音频流或音频解码器打不开(按无音频处理);
+    /// 400 包窗口内没解出音频帧时不判死,改用 codecpar 兜底(仍为 Some)
     audio: Option<AudioProbe>,
     duration_secs: Option<f64>,
 }
@@ -184,20 +185,32 @@ fn video_probe_from(frame: &ffmpeg::Frame, time_base: Rational) -> VideoProbe {
     }
 }
 
-fn describe_channel_layout(frame: &ffmpeg::Frame) -> String {
+/// 通道布局描述;失败或空(参数未标明)时退 "stereo",保证 abuffer 可建。
+fn describe_channel_layout(layout: &sys::AVChannelLayout) -> String {
     let mut buf = [0u8; 256];
-    let ret = unsafe {
-        sys::av_channel_layout_describe(
-            &(*frame.as_ptr()).ch_layout as *const sys::AVChannelLayout,
-            buf.as_mut_ptr().cast(),
-            buf.len(),
-        )
-    };
+    let ret =
+        unsafe { sys::av_channel_layout_describe(layout, buf.as_mut_ptr().cast(), buf.len()) };
     if ret < 0 {
         return "stereo".to_string();
     }
     let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    String::from_utf8_lossy(&buf[..end]).into_owned()
+    let described = String::from_utf8_lossy(&buf[..end]).into_owned();
+    if described.is_empty() {
+        "stereo".to_string()
+    } else {
+        described
+    }
+}
+
+/// 采样格式名(如 "fltp");未知格式拿不到名字,返回 None。
+fn sample_format_name(format: i32) -> Option<&'static str> {
+    let name = unsafe {
+        sys::av_get_sample_fmt_name(std::mem::transmute::<i32, sys::AVSampleFormat>(format))
+    };
+    if name.is_null() {
+        return None;
+    }
+    unsafe { std::ffi::CStr::from_ptr(name) }.to_str().ok()
 }
 
 fn audio_probe_from(frame: &ffmpeg::Frame, time_base: Rational) -> AudioProbe {
@@ -208,12 +221,33 @@ fn audio_probe_from(frame: &ffmpeg::Frame, time_base: Rational) -> AudioProbe {
     AudioProbe {
         sample_rate: unsafe { (*frame.as_ptr()).sample_rate as u32 },
         sample_format,
-        channel_layout: describe_channel_layout(frame),
+        channel_layout: unsafe { describe_channel_layout(&(*frame.as_ptr()).ch_layout) },
         time_base,
     }
 }
 
-fn video_stream(
+/// 从流的 codecpar 构造音频参数(解码帧缺失时的兜底):滤镜图按参数建好,
+/// 迟来的音频帧仍能进管线。采样格式名拿不到或采样率未标明时返回 None
+///(维持无音频)。
+fn audio_probe_from_params(params: &codec::Parameters, time_base: Rational) -> Option<AudioProbe> {
+    unsafe {
+        let p = params.as_ptr();
+        let sample_format = sample_format_name((*p).format)?;
+        let rate = (*p).sample_rate;
+        if rate <= 0 {
+            return None;
+        }
+        Some(AudioProbe {
+            sample_rate: rate as u32,
+            sample_format,
+            channel_layout: describe_channel_layout(&(*p).ch_layout),
+            time_base,
+        })
+    }
+}
+
+/// 取流的 time_base 与 codecpar(视频/音频流共用)。
+fn stream_params(
     ictx: &format::context::Input,
     index: usize,
 ) -> anyhow::Result<(Rational, codec::Parameters)> {
@@ -256,13 +290,13 @@ fn probe_source(config: &JobConfig, tx: &Sender<TranscodeEvent>) -> anyhow::Resu
         .streams()
         .position(|s| s.parameters().medium() == ffmpeg::media::Type::Audio);
 
-    let (v_tb, v_params) = video_stream(&ictx, v_idx)?;
+    let (v_tb, v_params) = stream_params(&ictx, v_idx)?;
     let mut v_dec = open_decoder(v_params, "视频")?;
 
     // 音频解码器打不开只降级为无音频,不阻断整个任务
     let mut a_state = None;
     if let Some(ai) = a_idx {
-        match video_stream(&ictx, ai)
+        match stream_params(&ictx, ai)
             .and_then(|(tb, params)| Ok((ai, tb, open_decoder(params, "音频")?)))
         {
             Ok(state) => a_state = Some(state),
@@ -318,6 +352,16 @@ fn probe_source(config: &JobConfig, tx: &Sender<TranscodeEvent>) -> anyhow::Resu
     }
 
     let video = video.context("探测:解不出任何视频帧")?;
+    // 解码器开得了但窗口内没解出音频帧:不据此判无音频,改用流的 codecpar
+    // 参数建图,迟来的音频帧仍能进管线(flush 时若始终没有音频帧再降级)
+    let audio = match (audio, a_state.as_ref()) {
+        (Some(a), _) => Some(a),
+        (None, Some((ai, tb, _))) => {
+            let (_, params) = stream_params(&ictx, *ai)?;
+            audio_probe_from_params(&params, *tb)
+        }
+        (None, None) => None,
+    };
     Ok(Probe {
         video,
         audio,
@@ -362,6 +406,8 @@ fn open_video_encoder(
     dict.set("bufsize", &format!("{}k", spec.buf_size_kbps));
     dict.set("profile", "high");
     dict.set("keyint_min", &config.gop().to_string());
+    // ffmpeg-next 会静默丢弃字典中未被编码器消费的选项,拼错键名不会报错;
+    // maxrate/bufsize/profile/keyint_min 均为通用 AVCodecContext 选项,正常会被消费。
     v.open_as_with(name, dict)
         .with_context(|| format!("打开编码器 {name} 失败"))
 }
@@ -627,6 +673,8 @@ struct Run<'a> {
     last_progress: Instant,
     duration_secs: Option<f64>,
     max_pts_secs: f64,
+    /// 解码失败被跳过的帧数(flush 收尾时汇总上报一次)
+    skipped_frames: u64,
 }
 
 impl Run<'_> {
@@ -824,13 +872,8 @@ impl Run<'_> {
             match pkt.read(ictx) {
                 Ok(()) => {}
                 Err(ffmpeg::Error::Eof) => break,
-                Err(e) => {
-                    send(
-                        self.tx,
-                        TranscodeEvent::Log(format!("读取输入提前结束:{e}")),
-                    );
-                    break;
-                }
+                // 读错误不是正常结束,硬失败(与探测/解码策略区分开)
+                Err(e) => return Err(anyhow!("读取输入失败:{e}").into()),
             }
             let idx = pkt.stream();
             if idx == v_idx {
@@ -845,25 +888,27 @@ impl Run<'_> {
                                 .context("滤镜图接收视频帧失败")?
                         }
                         Err(e) if is_drained(&e) => break,
-                        Err(e) => return Err(anyhow!("视频解码失败:{e}").into()),
+                        Err(_) => self.skipped_frames += 1,
                     }
                 }
             } else if self.audio.is_some() && a_idx.is_some_and(|ai| idx == ai) {
-                let dec = a_dec.as_mut().unwrap();
-                dec.send_packet(&pkt).context("音频解码失败")?;
-                loop {
-                    self.check_cancel()?;
-                    match dec.receive_frame(&mut self.scratch_a) {
-                        Ok(()) => {
-                            self.audio_seen = true;
-                            let lane = self.audio.as_mut().unwrap();
-                            let src = &mut lane.source;
-                            src.source()
-                                .add(&self.scratch_a)
-                                .context("滤镜图接收音频帧失败")?
+                // a_dec 可能打开失败(与探测一致按无音频降级),此时跳过音频包
+                if let Some(dec) = a_dec.as_mut() {
+                    dec.send_packet(&pkt).context("音频解码失败")?;
+                    loop {
+                        self.check_cancel()?;
+                        match dec.receive_frame(&mut self.scratch_a) {
+                            Ok(()) => {
+                                self.audio_seen = true;
+                                let lane = self.audio.as_mut().unwrap();
+                                let src = &mut lane.source;
+                                src.source()
+                                    .add(&self.scratch_a)
+                                    .context("滤镜图接收音频帧失败")?
+                            }
+                            Err(e) if is_drained(&e) => break,
+                            Err(_) => self.skipped_frames += 1,
                         }
-                        Err(e) if is_drained(&e) => break,
-                        Err(e) => return Err(anyhow!("音频解码失败:{e}").into()),
                     }
                 }
             }
@@ -893,7 +938,7 @@ impl Run<'_> {
                         .context("滤镜图接收视频帧失败")?
                 }
                 Err(e) if is_drained(&e) => break,
-                Err(e) => return Err(anyhow!("视频解码收尾失败:{e}").into()),
+                Err(_) => self.skipped_frames += 1,
             }
         }
         self.parts_flush();
@@ -912,7 +957,7 @@ impl Run<'_> {
                                 .context("滤镜图接收音频帧失败")?
                         }
                         Err(e) if is_drained(&e) => break,
-                        Err(e) => return Err(anyhow!("音频解码收尾失败:{e}").into()),
+                        Err(_) => self.skipped_frames += 1,
                     }
                 }
                 let src = &mut lane.source;
@@ -928,6 +973,14 @@ impl Run<'_> {
                 self.tx,
                 TranscodeEvent::Log("音频流未能解码,已按无音频输出".into()),
             );
+            // 预创建的空 audio/ 目录一并移除(仅在存在且为空时;失败忽略)
+            let audio_dir = self.config.output_root().join("audio");
+            let is_empty = std::fs::read_dir(&audio_dir)
+                .map(|mut d| d.next().is_none())
+                .unwrap_or(false);
+            if is_empty {
+                let _ = std::fs::remove_dir(&audio_dir);
+            }
         }
 
         self.maybe_write_header()?;
@@ -959,6 +1012,12 @@ impl Run<'_> {
             .context("写 HLS trailer 失败")?;
 
         self.report_final();
+        if self.skipped_frames > 0 {
+            send(
+                self.tx,
+                TranscodeEvent::Log(format!("跳过了 {} 个无法解码的帧", self.skipped_frames)),
+            );
+        }
         send(
             self.tx,
             TranscodeEvent::Log(format!("转码完成:{}", self.config.output_root().display())),
@@ -1033,12 +1092,20 @@ fn transcode_inner(
     let a_idx = ictx
         .streams()
         .position(|s| s.parameters().medium() == ffmpeg::media::Type::Audio);
-    let (_, v_params) = video_stream(&ictx, v_idx)?;
+    let (_, v_params) = stream_params(&ictx, v_idx)?;
     let mut v_dec = open_decoder(v_params, "视频")?;
+    // 与探测同一策略:音频解码器打不开只降级为无音频,不阻断整个任务
     let mut a_dec = None;
     if let Some(ai) = a_idx {
-        let (_, params) = video_stream(&ictx, ai)?;
-        a_dec = Some(open_decoder(params, "音频")?);
+        let (_, params) = stream_params(&ictx, ai)?;
+        a_dec = open_decoder(params, "音频")
+            .inspect_err(|e| {
+                send(
+                    tx,
+                    TranscodeEvent::Log(format!("音频解码器打开失败,按无音频输出:{e:#}")),
+                )
+            })
+            .ok();
     }
 
     let has_audio = audio_seed.is_some();
@@ -1084,6 +1151,7 @@ fn transcode_inner(
         last_progress: Instant::now(),
         duration_secs: probe.duration_secs,
         max_pts_secs: 0.0,
+        skipped_frames: 0,
     };
 
     run.run(&mut ictx, v_idx, &mut v_dec, a_idx, &mut a_dec)?;
