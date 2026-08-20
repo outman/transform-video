@@ -55,12 +55,10 @@ pub fn run_job(config: JobConfig, tx: Sender<TranscodeEvent>) -> TranscodeHandle
     let handle = TranscodeHandle {
         cancel: cancel.clone(),
     };
-    let tx = std::sync::Mutex::new(tx);
 
     std::thread::Builder::new()
         .name("transcode".into())
         .spawn(move || {
-            let tx = tx.lock().unwrap().clone();
             let _ = tx.try_send(TranscodeEvent::Phase(Phase::Preparing));
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 crate::transcode::pipeline::transcode(&config, &tx, &cancel)

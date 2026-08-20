@@ -5,5 +5,5 @@ pub mod hls;
 pub mod job;
 pub mod pipeline;
 
-pub use event::{TranscodeEvent, TranscodeHandle, run_job};
+pub use event::{Phase, TranscodeEvent, TranscodeHandle, run_job};
 pub use job::{JobConfig, VariantSpec};
