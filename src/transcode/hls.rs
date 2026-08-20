@@ -18,7 +18,7 @@ pub fn var_stream_map(job: &JobConfig, has_audio: bool) -> String {
 }
 
 /// hls muxer 私有选项字典,经 Output::write_header_with 传入。
-pub fn muxer_options(job: &JobConfig, has_audio: bool) -> Dictionary {
+pub fn muxer_options(job: &JobConfig, has_audio: bool) -> Dictionary<'static> {
     let root = job.output_root();
     let seg = root
         .join("%v")
@@ -46,7 +46,6 @@ pub fn output_pattern(job: &JobConfig) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transcode::job::JobConfig;
 
     #[test]
     fn var_stream_map_matches_reference() {
