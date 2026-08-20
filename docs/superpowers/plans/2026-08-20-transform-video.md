@@ -108,6 +108,18 @@ Run: `cargo doc --open -p ffmpeg-next --no-deps`
 4. `codec::encoder::{find, find_by_name}`(encoder 模块的自由函数;若无 `find_by_name`,后续用 `sys::avcodec_find_encoder_by_name` + `codec::Codec` 的 ptr 包装)
 5. `filter::Context::{src, sink}` 与 `Source::send_frame` / `Sink::receive_frame`
 
+> **核对结论(实际执行,ffmpeg-next 9.0.0 + Homebrew ffmpeg 9.0,提交 f420d27):**
+> 1. `util::log::set_level(Level)`、`Level` —— 存在。
+> 2. `Output::write_header_with(Dictionary) -> Result<Dictionary>` —— 存在;按值消耗字典,返回剩余未消费项(可用于发现拼写错误的 muxer 选项)。
+> 3. `Output::add_stream<E: traits::Encoder>` —— 存在;`E` 可为 `&str`/`Id`/`Codec`/`Audio`/`Video`。
+> 4. `encoder::find(id)`、`encoder::find_by_name(&str)` —— 都存在,无需 sys 兜底。
+> 5. **filter 层命名与原计划不同(后续任务按此改写):**
+>    - `Context::source()`(不是 `src`);`sink()` 名字一致。
+>    - `Source::add(&Frame)`(不是 `send_frame`);EOF 用 `Source::flush()`。
+>    - `Sink::frame(&mut Frame) -> Result<(), Error>`(不是 `receive_frame`);**取尽时返回 `Err(EAGAIN)` 而非 `Ok(false)`**,排空循环必须把 EAGAIN 当正常结束。
+>    - 9.0 中 frame 趋向统一类型 `ffmpeg_next::Frame`;channel layout 为 `ChannelLayout` 类型。
+> - 版本应变已触发:本机 ffmpeg 9.0,`ffmpeg-next = "9"`(7.x/8.x 编译失败);Task 10/11 的 Windows BtbN 版本需与之对齐(9.x),CI 需装 ffmpeg 9 + pkgconf。
+
 - [ ] **Step 5: Commit**
 
 ```bash
