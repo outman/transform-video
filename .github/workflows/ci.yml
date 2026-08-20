@@ -4,23 +4,33 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   macos:
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # brew 的 ffmpeg 是 vendor 闭包拷贝的来源,仍需安装
       - run: brew install ffmpeg pkgconf
-      # 先用系统 ffmpeg 覆盖 pkg-config 发现路径
-      - run: cargo test --all
       - run: ./scripts/vendor-macos.sh
-      # 再对 vendor 库重新构建(产物链接 @rpath,详见 vendor-macos.sh 说明)
-      - name: Release build against vendored libs
-        run: |
-          FFMPEG_DIR="$GITHUB_WORKSPACE/vendor/macos" \
-          RUSTFLAGS="-C link-arg=-Wl,-rpath,$GITHUB_WORKSPACE/vendor/macos/lib" \
-          cargo build --release
+      # 测试与发布用同一 vendor 环境一次编译(缓存有效),测的就是分发的 vendor 形态;
+      # 系统/brew 链接路径由本地覆盖
+      - name: Test against vendored FFmpeg
+        run: cargo test --all
+        env:
+          FFMPEG_DIR: ${{ github.workspace }}/vendor/macos
+          RUSTFLAGS: "-C link-arg=-Wl,-rpath,${{ github.workspace }}/vendor/macos/lib"
+      - name: Release build
+        run: cargo build --release
+        env:
+          FFMPEG_DIR: ${{ github.workspace }}/vendor/macos
+          RUSTFLAGS: "-C link-arg=-Wl,-rpath,${{ github.workspace }}/vendor/macos/lib"
       - run: ./scripts/package-macos.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -29,6 +39,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     env:
       FFMPEG_DIR: '${{ github.workspace }}\vendor\windows'
     steps:

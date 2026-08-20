@@ -13,13 +13,24 @@ cp "$ROOT/target/release/transform-video" "$APP/Contents/MacOS/TransformVideo"
 # 两种名字都得进包:可执行文件引用全版本名,dylib 相互引用的是短名(如 @rpath/libavutil.61.dylib)。
 for f in "$ROOT"/vendor/macos/lib/*.dylib; do
   if [ -L "$f" ]; then
-    ln -s "$(readlink "$f")" "$APP/Contents/Frameworks/$(basename "$f")"
+    link_target="$(readlink "$f")"
+    # vendor 产出应为相对软链;绝对软链进包后会指向构建机路径,直接报错
+    case "$link_target" in
+      /*) echo "错误:$f 是绝对软链($link_target),vendor 产物异常" >&2; exit 1 ;;
+    esac
+    ln -s "$link_target" "$APP/Contents/Frameworks/$(basename "$f")"
   else
     cp "$f" "$APP/Contents/Frameworks/"
   fi
 done
 
 EXE="$APP/Contents/MacOS/TransformVideo"
+# 防呆:二进制若链接了系统 FFmpeg 的绝对路径(非 @rpath),打出的包在别的机器上必挂
+if otool -L "$EXE" | grep -qE '^\s*/(opt/homebrew|usr/local)/'; then
+  echo "错误:二进制链接了系统 FFmpeg(非 @rpath),请先用 vendor 构建:" >&2
+  echo "  FFMPEG_DIR=\"$ROOT/vendor/macos\" RUSTFLAGS='-C link-arg=-Wl,-rpath,$ROOT/vendor/macos/lib' cargo build --release" >&2
+  exit 1
+fi
 # 构建期 RUSTFLAGS 注入的 vendor 绝对路径 rpath 仅开发机有效,发布包里删掉,
 # 只保留 @executable_path 相对 rpath,让 .app 完全自包含。
 install_name_tool -delete_rpath "$ROOT/vendor/macos/lib" "$EXE" 2>/dev/null || true
