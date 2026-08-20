@@ -70,6 +70,7 @@ impl Default for AppState {
 impl AppState {
     pub fn build_config(&self) -> JobConfig {
         let defaults = JobConfig::default();
+        debug_assert_eq!(defaults.variants.len(), self.enabled_variants.len());
         let variants: Vec<VariantSpec> = defaults
             .variants
             .iter()
@@ -97,6 +98,9 @@ impl AppState {
     }
 
     pub fn start(&mut self, cx: &mut Context<Self>) {
+        if self.busy() {
+            return; // 已有任务在跑:忽略重复开始,避免双事件泵
+        }
         let config = self.build_config();
         let (tx, rx) = channel::unbounded();
         self.handle = Some(crate::transcode::run_job(config, tx));
