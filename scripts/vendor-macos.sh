@@ -64,6 +64,7 @@ done
 for lib in libavcodec libavdevice libavformat libavfilter libavutil libswresample libswscale libx264; do
   if [ ! -e "$VENDOR/lib/$lib.dylib" ]; then
     for target in "$VENDOR"/lib/${lib}.*.dylib; do
+      [ -e "$target" ] || { echo "错误:vendor 内找不到 $lib 的任何版本" >&2; exit 1; }
       ln -s "$(basename "$target")" "$VENDOR/lib/$lib.dylib"
       break
     done
