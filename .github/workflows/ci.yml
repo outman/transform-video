@@ -1,0 +1,51 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: brew install ffmpeg pkgconf
+      # 先用系统 ffmpeg 覆盖 pkg-config 发现路径
+      - run: cargo test --all
+      - run: cargo build --release
+      - run: ./scripts/vendor-macos.sh
+      # 再对 vendor 库重新构建(产物链接 @rpath,详见 vendor-macos.sh 说明)
+      - name: Release build against vendored libs
+        run: |
+          FFMPEG_DIR="$GITHUB_WORKSPACE/vendor/macos" \
+          RUSTFLAGS="-C link-arg=-Wl,-rpath,$GITHUB_WORKSPACE/vendor/macos/lib" \
+          cargo build --release
+      - run: ./scripts/package-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transform-video-macos
+          path: dist/transform-video-macos.zip
+
+  windows:
+    runs-on: windows-latest
+    env:
+      FFMPEG_DIR: '${{ github.workspace }}\vendor\windows'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pwsh ./scripts/vendor-windows.ps1
+      # 测试可执行文件运行时要能找到 vendor 的 dll,需把 bin 加入 PATH
+      - name: Test
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:PATH;$env:FFMPEG_DIR\bin"
+          cargo test --all
+      - run: cargo build --release
+      - run: pwsh ./scripts/package-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transform-video-win64
+          path: dist/transform-video-win64.zip
