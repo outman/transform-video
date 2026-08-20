@@ -90,8 +90,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn run_job_reports_failure_from_placeholder_pipeline() {
-        // pipeline 是 unimplemented!(),会 panic → catch_unwind → Failed 事件
+    fn run_job_reports_failure_from_invalid_config() {
+        // 默认配置输入为空 → pipeline 打不开输入,返回 Failed(旧行为:
+        // 占位 pipeline 的 unimplemented!() panic → catch_unwind → Failed)
         let (tx, rx) = smol::channel::unbounded();
         let _h = run_job(JobConfig::default(), tx);
         let mut events = Vec::new();
