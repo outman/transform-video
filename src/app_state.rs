@@ -18,6 +18,18 @@ pub enum Status {
     Failed,
 }
 
+/// 关窗(实体释放)即取消:包装 handle,Drop 时置 cancel 标志。
+/// 对已结束的转码线程再置一次标志无害。
+struct CancelOnDrop(Option<TranscodeHandle>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if let Some(h) = &self.0 {
+            h.cancel();
+        }
+    }
+}
+
 pub struct AppState {
     pub input_path: Option<PathBuf>,
     pub output_dir: Option<PathBuf>,
@@ -37,7 +49,7 @@ pub struct AppState {
     pub eta_secs: f64,
     pub logs: Vec<String>,
     pub output_root: Option<PathBuf>,
-    handle: Option<TranscodeHandle>,
+    handle: Option<CancelOnDrop>,
 }
 
 impl Default for AppState {
@@ -103,7 +115,7 @@ impl AppState {
         }
         let config = self.build_config();
         let (tx, rx) = channel::unbounded();
-        self.handle = Some(crate::transcode::run_job(config, tx));
+        self.handle = Some(CancelOnDrop(Some(crate::transcode::run_job(config, tx))));
         self.status = Status::Preparing;
         self.percent = 0.0;
         self.elapsed_secs = 0.0;
@@ -170,14 +182,16 @@ impl AppState {
     }
 
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
-        if let Some(handle) = &self.handle {
-            handle.cancel();
+        if let Some(handle) = &self.handle
+            && let Some(h) = &handle.0
+        {
+            h.cancel();
         }
         cx.notify();
     }
 
     pub fn busy(&self) -> bool {
-        self.handle.is_some()
+        self.handle.as_ref().is_some_and(|c| c.0.is_some())
     }
 }
 
