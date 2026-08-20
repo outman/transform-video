@@ -901,12 +901,11 @@ impl Run<'_> {
         if let Some(dec) = a_dec.as_mut() {
             let _ = dec.send_eof();
             // 探测没解出音频帧时没有音频 lane(按无音频输出),只排空解码器
-            if self.audio.is_some() {
+            if let Some(lane) = self.audio.as_mut() {
                 loop {
                     match dec.receive_frame(&mut self.scratch_a) {
                         Ok(()) => {
                             self.audio_seen = true;
-                            let lane = self.audio.as_mut().unwrap();
                             let src = &mut lane.source;
                             src.source()
                                 .add(&self.scratch_a)
@@ -916,7 +915,6 @@ impl Run<'_> {
                         Err(e) => return Err(anyhow!("音频解码收尾失败:{e}").into()),
                     }
                 }
-                let lane = self.audio.as_mut().unwrap();
                 let src = &mut lane.source;
                 src.source().flush().context("音频源 flush 失败")?;
             }
@@ -990,6 +988,12 @@ fn transcode_inner(
     ensure_ffmpeg_ready();
 
     let probe = probe_source(config, tx)?;
+
+    let root = config.output_root();
+    if root.exists() {
+        std::fs::remove_dir_all(&root)
+            .with_context(|| format!("清理已存在的输出目录失败:{}", root.display()))?;
+    }
 
     for d in config.variant_dirs(probe.audio.is_some()) {
         std::fs::create_dir_all(&d).with_context(|| format!("无法创建输出目录 {}", d.display()))?;
