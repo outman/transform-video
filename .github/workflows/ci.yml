@@ -14,7 +14,6 @@ jobs:
       - run: brew install ffmpeg pkgconf
       # 先用系统 ffmpeg 覆盖 pkg-config 发现路径
       - run: cargo test --all
-      - run: cargo build --release
       - run: ./scripts/vendor-macos.sh
       # 再对 vendor 库重新构建(产物链接 @rpath,详见 vendor-macos.sh 说明)
       - name: Release build against vendored libs
@@ -41,7 +40,7 @@ jobs:
       - name: Test
         shell: pwsh
         run: |
-          $env:PATH = "$env:PATH;$env:FFMPEG_DIR\bin"
+          $env:PATH = "$env:FFMPEG_DIR\bin;$env:PATH"
           cargo test --all
       - run: cargo build --release
       - run: pwsh ./scripts/package-windows.ps1
