@@ -15,11 +15,11 @@ pub fn candidates() -> Vec<&'static str> {
     }
 }
 
-/// 按输入尺寸与目标高度估算输出宽度(scale 的 force_original_aspect_ratio 行为:
-/// 宽度 = in_w * h / in_h 向上取整后对齐到偶数,最小 2;h 取 min(target, in_h.max(2)))。
+/// 按输入尺寸与目标高度估算输出宽度:宽度 = in_w * target_h / in_h 向上取整后
+/// 对齐到偶数,最小 2;scale 在目标高度更大时会放大,此估算与之一致。
 pub fn estimate_width(in_w: u32, in_h: u32, target_h: u32) -> u32 {
-    let h = target_h.min(in_h.max(2));
-    let w = (u64::from(in_w) * u64::from(h)).div_ceil(u64::from(in_h));
+    let h = target_h.max(2);
+    let w = (u64::from(in_w) * u64::from(h)).div_ceil(u64::from(in_h.max(1)));
     (w.max(2) & !1) as u32
 }
 
@@ -62,8 +62,9 @@ pub fn choose(
     force_software: bool,
     mut log: impl FnMut(String),
 ) -> (String, bool) {
+    let cands = candidates();
     if !force_software {
-        for name in candidates() {
+        for name in &cands {
             if probe(
                 name,
                 width as i32,
@@ -74,7 +75,7 @@ pub fn choose(
                 return (name.to_string(), true);
             }
         }
-        if !candidates().is_empty() {
+        if !cands.is_empty() {
             log("硬件编码不可用,回退 libx264 软件编码".to_string());
         }
     }
@@ -110,8 +111,18 @@ mod tests {
         assert_eq!(estimate_width(1920, 1080, 480), 854); // 853.33 → 854(偶数、向上取整)
         // 竖屏 9:16
         assert_eq!(estimate_width(1080, 1920, 1080), 608);
+        // 目标高度大于输入高度时 scale 会放大
+        assert_eq!(estimate_width(640, 360, 480), 854); // 853.33 → 854
+        assert_eq!(estimate_width(640, 360, 1080), 1920);
+        // 奇数宽度向下取偶
+        assert_eq!(estimate_width(851, 480, 480), 850);
         // 结果永不为 0
         assert!(estimate_width(1, 1000, 480) >= 2);
+    }
+
+    #[test]
+    fn probe_rejects_unknown_encoder() {
+        assert!(!probe("no_such_encoder_x", 640, 480, 1_000_000));
     }
 
     #[test]
