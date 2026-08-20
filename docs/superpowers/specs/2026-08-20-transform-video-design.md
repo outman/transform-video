@@ -114,7 +114,7 @@ transform-video/
 - 组件均为 gpui-component 现有组件:Input、Button、Checkbox、NumberInput、Select、Progress、TitleBar
 - 状态机:`Idle → Preparing(探测编码器、构建管线)→ Transcoding → Finalizing → Done | Canceled | Failed`
 - 校验规则:输入文件存在、输出目录可写、至少启用一档分辨率;输出目录下同名文件夹已存在时弹出确认,确认后清空重建(等价脚本的 `-y` 行为)
-- 转码完成弹出 Notification 并显示「打开输出目录」按钮;取消与失败在日志区说明原因
+- 转码完成后状态区显示「已完成」并提供「打开输出目录」按钮,日志区显示输出路径;取消与失败同样在状态区与日志区说明原因
 
 ## 构建与分发
 
@@ -161,4 +161,4 @@ CI:GitHub Actions 双平台矩阵,流程为获取库 → `cargo test` → `cargo
 | ffmpeg-next 处于维护模式,个别 API 缺失 | 通过 `ffmpeg_next::sys` 直接调用 C API |
 | CI 与本机 FFmpeg 版本不一致 | ffmpeg-next 支持版本自动探测(3.4 至 8) |
 | Windows 上 h264_mf 兼容性一般 | 候选顺序放在最后,libx264 最终回退 |
-| 预编译库升级引入行为变化 | vendor 脚本固定版本号,升级为显式操作 |
+| 预编译库升级引入行为变化 | Windows 固定 BtbN 版本号,升级为显式操作;macOS 跟随 Homebrew,CI 即时暴露兼容问题 |
