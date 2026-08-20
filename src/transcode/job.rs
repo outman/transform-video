@@ -35,9 +35,27 @@ impl Default for JobConfig {
             input: PathBuf::new(),
             output_dir: PathBuf::new(),
             variants: vec![
-                VariantSpec { name: "1080p", height: 1080, bit_rate_kbps: 4000, max_rate_kbps: 5000, buf_size_kbps: 8000 },
-                VariantSpec { name: "720p", height: 720, bit_rate_kbps: 2500, max_rate_kbps: 3000, buf_size_kbps: 5000 },
-                VariantSpec { name: "480p", height: 480, bit_rate_kbps: 1200, max_rate_kbps: 1500, buf_size_kbps: 2500 },
+                VariantSpec {
+                    name: "1080p",
+                    height: 1080,
+                    bit_rate_kbps: 4000,
+                    max_rate_kbps: 5000,
+                    buf_size_kbps: 8000,
+                },
+                VariantSpec {
+                    name: "720p",
+                    height: 720,
+                    bit_rate_kbps: 2500,
+                    max_rate_kbps: 3000,
+                    buf_size_kbps: 5000,
+                },
+                VariantSpec {
+                    name: "480p",
+                    height: 480,
+                    bit_rate_kbps: 1200,
+                    max_rate_kbps: 1500,
+                    buf_size_kbps: 2500,
+                },
             ],
             fps: 30,
             segment_secs: 10,
@@ -85,7 +103,11 @@ impl JobConfig {
 
     /// 分段文件名前缀(替代脚本中写死的 hedgie_english_)
     pub fn segment_prefix(&self) -> String {
-        self.input.file_stem().unwrap_or_default().to_string_lossy().into_owned()
+        self.input
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
     }
 
     /// GOP:keyint 按一个分段时长内的帧数,保证 independent_segments 成立
@@ -95,7 +117,11 @@ impl JobConfig {
 
     /// 预创建的子目录列表(变体目录 + 纯音频目录;无音频时不建 audio)
     pub fn variant_dirs(&self, has_audio: bool) -> Vec<PathBuf> {
-        let mut dirs: Vec<PathBuf> = self.variants.iter().map(|v| self.output_root().join(v.name)).collect();
+        let mut dirs: Vec<PathBuf> = self
+            .variants
+            .iter()
+            .map(|v| self.output_root().join(v.name))
+            .collect();
         if has_audio {
             dirs.push(self.output_root().join("audio"));
         }
@@ -145,10 +171,10 @@ mod tests {
         let file = tempfile::NamedTempFile::new().unwrap();
         let mut cfg = cfg_with_input(file.path());
         cfg.fps = 0;
-        assert!(cfg.validate().is_err());
+        assert_eq!(cfg.validate().unwrap_err(), "fps 必须大于 0");
         let mut cfg = cfg_with_input(file.path());
         cfg.segment_secs = 0;
-        assert!(cfg.validate().is_err());
+        assert_eq!(cfg.validate().unwrap_err(), "分段时长必须大于 0 秒");
     }
 
     #[test]
@@ -157,7 +183,34 @@ mod tests {
             input: std::path::PathBuf::from("/nonexistent/zzz.mp4"),
             ..JobConfig::default()
         };
-        assert!(cfg.validate().is_err());
+        assert_eq!(
+            cfg.validate().unwrap_err(),
+            "输入文件不存在:/nonexistent/zzz.mp4"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_default_empty_input() {
+        assert_eq!(
+            JobConfig::default().validate().unwrap_err(),
+            "未选择输入文件"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_empty_output_dir() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let mut cfg = cfg_with_input(file.path());
+        cfg.output_dir = std::path::PathBuf::new();
+        assert_eq!(cfg.validate().unwrap_err(), "未选择输出目录");
+    }
+
+    #[test]
+    fn validate_rejects_zero_variant_bitrate() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let mut cfg = cfg_with_input(file.path());
+        cfg.variants[0].bit_rate_kbps = 0;
+        assert_eq!(cfg.validate().unwrap_err(), "1080p 码率必须大于 0");
     }
 
     #[test]
@@ -167,7 +220,10 @@ mod tests {
             output_dir: std::path::PathBuf::from("/tmp/out"),
             ..JobConfig::default()
         };
-        assert_eq!(cfg.output_root(), std::path::PathBuf::from("/tmp/out/L3-考点4"));
+        assert_eq!(
+            cfg.output_root(),
+            std::path::PathBuf::from("/tmp/out/L3-考点4")
+        );
     }
 
     #[test]
@@ -183,5 +239,17 @@ mod tests {
     fn gop_is_fps_times_segment_secs() {
         let cfg = JobConfig::default();
         assert_eq!(cfg.gop(), 300);
+    }
+
+    #[test]
+    fn variant_dirs_includes_audio_only_when_present() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let cfg = cfg_with_input(file.path());
+        let with_audio = cfg.variant_dirs(true);
+        assert_eq!(with_audio.last(), Some(&cfg.output_root().join("audio")));
+        assert_eq!(with_audio.len(), cfg.variants.len() + 1);
+        let without_audio = cfg.variant_dirs(false);
+        assert_eq!(without_audio.len(), cfg.variants.len());
+        assert!(!without_audio.contains(&cfg.output_root().join("audio")));
     }
 }
