@@ -2,7 +2,7 @@
 // pub mod encoders;
 // pub mod event;
 pub mod filters;
-// pub mod hls;
+pub mod hls;
 // pub mod pipeline;
 // pub use event::{run_job, TranscodeEvent, TranscodeHandle};
 
