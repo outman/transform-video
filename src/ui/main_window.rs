@@ -67,6 +67,7 @@ impl MainWindow {
                         && let Ok(n) = input.read(cx).unmask_value().parse::<u32>()
                     {
                         v.state.update(cx, |s, _| s.fps = n.clamp(1, 240));
+                        cx.notify();
                     }
                 }),
                 cx.subscribe_in(&seg_input, window, |v, input, e: &InputEvent, _w, cx| {
@@ -74,6 +75,7 @@ impl MainWindow {
                         && let Ok(n) = input.read(cx).unmask_value().parse::<u32>()
                     {
                         v.state.update(cx, |s, _| s.segment_secs = n.clamp(1, 60));
+                        cx.notify();
                     }
                 }),
                 cx.subscribe_in(&audio_input, window, |v, input, e: &InputEvent, _w, cx| {
@@ -82,6 +84,7 @@ impl MainWindow {
                     {
                         v.state
                             .update(cx, |s, _| s.audio_bitrate_kbps = n.clamp(32, 512));
+                        cx.notify();
                     }
                 }),
                 cx.subscribe_in(
@@ -91,6 +94,7 @@ impl MainWindow {
                         if let SelectEvent::Confirm(Some(val)) = e {
                             v.state
                                 .update(cx, |s, _| s.force_software = val == ENCODER_SOFTWARE);
+                            cx.notify();
                         }
                     },
                 ),

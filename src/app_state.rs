@@ -231,4 +231,14 @@ mod tests {
             "至少需要启用一档分辨率"
         );
     }
+
+    #[test]
+    fn dropping_cancel_on_drop_cancels_the_job() {
+        // 空配置 → run_job 立即 Failed;用 clone 的句柄观察 Drop 的取消副作用
+        let (tx, _rx) = smol::channel::unbounded();
+        let handle = crate::transcode::run_job(JobConfig::default(), tx);
+        let observer = handle.clone();
+        drop(CancelOnDrop(Some(handle)));
+        assert!(observer.is_canceled());
+    }
 }
