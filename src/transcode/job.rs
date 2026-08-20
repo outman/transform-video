@@ -27,6 +27,9 @@ pub struct JobConfig {
     pub force_software: bool,
     /// 强制输入格式名(等价 ffmpeg CLI 的 -f);测试用 "lavfi",生产为 None
     pub input_format: Option<String>,
+    /// 输出命名覆盖;None 时从输入文件名派生。
+    /// lavfi 等图字符串含 ':' 等字符,不能直接当输出目录名(Windows 上更非法),测试用它固定名字。
+    pub output_stem: Option<String>,
 }
 
 impl Default for JobConfig {
@@ -62,6 +65,7 @@ impl Default for JobConfig {
             audio_bitrate_kbps: 128,
             force_software: false,
             input_format: None,
+            output_stem: None,
         }
     }
 }
@@ -95,19 +99,25 @@ impl JobConfig {
         Ok(())
     }
 
-    /// 输出根目录:<output_dir>/<输入文件名去扩展名>
+    /// 输出根目录:<output_dir>/<输出名>(默认取输入文件名去扩展名)
     pub fn output_root(&self) -> PathBuf {
-        let stem = self.input.file_stem().unwrap_or_default();
+        let stem = self
+            .output_stem
+            .clone()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.input.file_stem().unwrap_or_default().into());
         self.output_dir.join(stem)
     }
 
-    /// 分段文件名前缀(替代脚本中写死的 hedgie_english_)
+    /// 分段文件名前缀(替代脚本中写死的 hedgie_english_;默认取输入文件名去扩展名)
     pub fn segment_prefix(&self) -> String {
-        self.input
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
+        self.output_stem.clone().unwrap_or_else(|| {
+            self.input
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned()
+        })
     }
 
     /// GOP:keyint 按一个分段时长内的帧数,保证 independent_segments 成立
@@ -233,6 +243,33 @@ mod tests {
             ..JobConfig::default()
         };
         assert_eq!(cfg.segment_prefix(), "L3-考点4");
+    }
+
+    #[test]
+    fn output_stem_overrides_derived_names() {
+        // 覆盖生效:目录与前缀都改用 output_stem
+        let cfg = JobConfig {
+            input: std::path::PathBuf::from("/tmp/L3-考点4.mp4"),
+            output_dir: std::path::PathBuf::from("/tmp/out"),
+            output_stem: Some("lavfi-test".into()),
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            cfg.output_root(),
+            std::path::PathBuf::from("/tmp/out/lavfi-test")
+        );
+        assert_eq!(cfg.segment_prefix(), "lavfi-test");
+        // None 时回落输入 stem
+        let fallback = JobConfig {
+            input: std::path::PathBuf::from("/tmp/L3-考点4.mp4"),
+            output_dir: std::path::PathBuf::from("/tmp/out"),
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            fallback.output_root(),
+            std::path::PathBuf::from("/tmp/out/L3-考点4")
+        );
+        assert_eq!(fallback.segment_prefix(), "L3-考点4");
     }
 
     #[test]
