@@ -41,18 +41,22 @@ else
   install_name_tool -add_rpath "@executable_path/../Frameworks" "$EXE"
 fi
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+# Info.plist 版本跟随 Cargo.toml,避免发布包版本漂移
+VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$ROOT/Cargo.toml" | head -1)"
+test -n "$VERSION" || { echo "错误:未能从 Cargo.toml 解析出版本号" >&2; exit 1; }
+
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleExecutable</key><string>TransformVideo</string>
-  <key>CFBundleIdentifier</key><string>com.outman.transform-video</string>
-  <key>CFBundleName</key><string>TransformVideo</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleVersion</key><string>0.1.0</string>
+	<key>CFBundleExecutable</key><string>TransformVideo</string>
+	<key>CFBundleIdentifier</key><string>com.outman.transform-video</string>
+	<key>CFBundleName</key><string>TransformVideo</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
+	<key>CFBundleShortVersionString</key><string>$VERSION</string>
+	<key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
