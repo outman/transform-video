@@ -107,9 +107,13 @@ fn open_input(config: &JobConfig) -> anyhow::Result<format::context::Input> {
 
 /// hls muxer 设 AVFMT_NOFILE(分段文件自管),不能 avio_open,
 /// 因此手工分配输出 context 再包装(等价 CLI 的 `-f hls <url>`)。
+/// url 统一转 /:ffmpeg 推导 fmp4 init 段与 master 落点时用 strrchr(path,'/')
+/// 切目录、不认 Windows 的 \(hlsenc.c),原生 \ 路径会让 init 写进进程 CWD,
+/// 多任务并行时同一文件引发共享冲突(Permission denied);Windows 的文件 IO 接受 /
 fn alloc_hls_output(url: &std::path::Path) -> anyhow::Result<format::context::Output> {
-    let c_url = CString::new(url.to_string_lossy().as_bytes())
-        .map_err(|_| anyhow!("输出路径含非法字符:{}", url.display()))?;
+    let url = url.to_string_lossy().replace('\\', "/");
+    let c_url = CString::new(url.as_bytes())
+        .map_err(|_| anyhow!("输出路径含非法字符:{}", url))?;
     let mut ps = std::ptr::null_mut();
     let ret = unsafe {
         sys::avformat_alloc_output_context2(
