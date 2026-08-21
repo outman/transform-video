@@ -1,3 +1,6 @@
+// release 构建隐藏 Windows 控制台窗口;debug 保留以便看日志与 panic 输出
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use gpui::*;
 
 use gpui_component::TitleBar;
