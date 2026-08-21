@@ -1,38 +1,70 @@
 # Transform Video
 
-跨平台(macOS / Windows)视频转 HLS 多档码率的桌面工具。界面基于
-[gpui-component](https://github.com/longbridge/gpui-component),转码通过
-FFmpeg 库集成完成(不调用 ffmpeg 命令行)。
+[English](README.md) | [简体中文](README_ZH-CN.md)
 
-## 功能
+A cross-platform desktop application for transcoding video into multi-bitrate
+HLS streams on macOS and Windows. The interface is built with
+[gpui-component](https://github.com/longbridge/gpui-component), and transcoding
+is performed through the integrated FFmpeg libraries without invoking the
+`ffmpeg` command-line tool.
 
-- 单输入 → HLS fMP4 多档输出:1080p / 720p / 480p + 纯音频,master playlist
-- 参数可调:分辨率档、各档码率、fps、分段时长、音频码率
-- 硬件编码自动探测:macOS VideoToolbox;Windows nvenc / amf / qsv / mf;
-  均不可用时回退 libx264(可强制软编)
-- 进度 / 剩余时间、取消(清理未完成分段)、日志、完成后打开输出目录
+<p align="center">
+  <img src="screenshot.png" alt="Transform Video application screenshot" width="712">
+</p>
 
-## 开发
+## Features
 
-依赖:Rust stable;macOS 需 `brew install ffmpeg pkgconf`(构建链接用)。
+- Transcodes a single input into multi-variant HLS fMP4 output: 1080p, 720p,
+  480p, an audio-only stream, and a master playlist
+- Configurable resolution variants, bitrate for each variant, frame rate,
+  segment duration, and audio bitrate
+- Automatic hardware encoder detection: VideoToolbox on macOS; NVENC, AMF,
+  QSV, and Media Foundation on Windows
+- Falls back to `libx264` when no hardware encoder is available, with an option
+  to force software encoding
+- Displays progress, estimated time remaining, and logs
+- Supports cancellation with automatic cleanup of incomplete segments
+- Opens the output directory when transcoding completes
 
-    cargo test
-    cargo run
+## Development
 
-发布构建(macOS,链接 vendor 库):
+Requirements: the latest stable Rust toolchain. On macOS, install the build-time
+FFmpeg dependencies with:
 
-    ./scripts/vendor-macos.sh
-    FFMPEG_DIR="$PWD/vendor/macos" RUSTFLAGS="-C link-arg=-Wl,-rpath,$PWD/vendor/macos/lib" cargo build --release
-    ./scripts/package-macos.sh
+```sh
+brew install ffmpeg pkgconf
+```
 
-Windows(PowerShell):
+Run the tests and application:
 
-    pwsh ./scripts/vendor-windows.ps1
-    $env:FFMPEG_DIR = "$PWD\vendor\windows"; cargo build --release
-    pwsh ./scripts/package-windows.ps1
+```sh
+cargo test
+cargo run
+```
 
-CI(GitHub Actions,双平台)在 push 到 main 或 PR 时构建并上传安装包。
+### macOS release build
 
-## 许可
+Build against the vendored libraries and package the application:
 
-GPL-3.0(含 FFmpeg GPL 构建与 libx264)。
+```sh
+./scripts/vendor-macos.sh
+FFMPEG_DIR="$PWD/vendor/macos" RUSTFLAGS="-C link-arg=-Wl,-rpath,$PWD/vendor/macos/lib" cargo build --release
+./scripts/package-macos.sh
+```
+
+### Windows release build
+
+Run the following commands in PowerShell:
+
+```powershell
+pwsh ./scripts/vendor-windows.ps1
+$env:FFMPEG_DIR = "$PWD\vendor\windows"; cargo build --release
+pwsh ./scripts/package-windows.ps1
+```
+
+GitHub Actions builds both platforms and uploads the packaged artifacts on
+pushes to `main` and pull requests.
+
+## License
+
+GPL-3.0, including the GPL-enabled FFmpeg build and `libx264`.

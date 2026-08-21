@@ -1,10 +1,20 @@
-use std::sync::atomic::AtomicBool;
+use std::sync::{atomic::AtomicBool, Mutex, MutexGuard, OnceLock};
 
 use smol::channel;
 
 use transform_video::transcode::event::TranscodeEvent;
 use transform_video::transcode::job::{JobConfig, VariantSpec};
 use transform_video::transcode::pipeline;
+
+/// Windows 的 HLS 路径兼容层会在转码期间临时切换进程 cwd。Rust 默认并行运行
+/// 同一测试二进制中的用例，因此这组集成测试必须把“准备配置—转码—断言”整体串行化；
+/// 仅依赖生产代码中 transcode 调用内部的锁，仍会让调用前后的 cwd 断言互相干扰。
+fn pipeline_test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn variant_480p() -> VariantSpec {
     VariantSpec {
@@ -50,6 +60,7 @@ fn run(
 
 #[test]
 fn transcodes_single_variant_without_audio() {
+    let _test_lock = pipeline_test_lock();
     let dir = tempfile::tempdir().unwrap();
     let cfg = config(dir.path(), false);
     let working_dir = std::env::current_dir().unwrap();
@@ -66,11 +77,11 @@ fn transcodes_single_variant_without_audio() {
             && p.file_stem()
                 .is_some_and(|s| s.to_string_lossy().starts_with("init"))
     }));
-    assert!(
-        v.read_dir()
-            .unwrap()
-            .any(|p| p.unwrap().path().extension().is_some_and(|e| e == "m4s"))
-    );
+    assert!(v.read_dir().unwrap().any(|p| p
+        .unwrap()
+        .path()
+        .extension()
+        .is_some_and(|e| e == "m4s")));
     assert!(!root.join("audio").exists());
     let mut final_pct: f64 = 0.0;
     while let Ok(e) = rx.try_recv() {
@@ -86,6 +97,7 @@ fn transcodes_single_variant_without_audio() {
 
 #[test]
 fn transcodes_with_audio_variant() {
+    let _test_lock = pipeline_test_lock();
     let dir = tempfile::tempdir().unwrap();
     let cfg = config(dir.path(), true);
     let (result, _rx) = run(&cfg, &AtomicBool::new(false));
@@ -97,6 +109,7 @@ fn transcodes_with_audio_variant() {
 
 #[test]
 fn cancel_removes_partial_output() {
+    let _test_lock = pipeline_test_lock();
     let dir = tempfile::tempdir().unwrap();
     let cfg = config(dir.path(), false);
     let (result, _rx) = run(&cfg, &AtomicBool::new(true)); // 预置取消
@@ -106,6 +119,7 @@ fn cancel_removes_partial_output() {
 
 #[test]
 fn transcodes_three_variants_with_interleaving() {
+    let _test_lock = pipeline_test_lock();
     let dir = tempfile::tempdir().unwrap();
     let cfg = JobConfig {
         variants: JobConfig::default().variants,
