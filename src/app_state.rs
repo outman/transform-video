@@ -169,7 +169,7 @@ impl AppState {
                 self.handle = None;
             }
             TranscodeEvent::Failed(msg) => {
-                self.logs.push(format!("失败:{msg}"));
+                self.logs.push(msg);
                 self.status = Status::Failed;
                 self.handle = None;
             }

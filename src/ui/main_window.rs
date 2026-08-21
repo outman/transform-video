@@ -13,6 +13,9 @@ const ENCODER_SOFTWARE: &str = "强制软编(libx264)";
 
 pub struct MainWindow {
     pub state: Entity<AppState>,
+    pub bitrate_1080_input: Entity<InputState>,
+    pub bitrate_720p_input: Entity<InputState>,
+    pub bitrate_480p_input: Entity<InputState>,
     pub fps_input: Entity<InputState>,
     pub seg_input: Entity<InputState>,
     pub audio_input: Entity<InputState>,
@@ -24,6 +27,27 @@ impl MainWindow {
     pub fn new(window: &mut Window, cx: &mut App) -> Entity<Self> {
         // 两步式:先建子 entity 再建 view,避免 cx.new 嵌套借用冲突
         let state = cx.new(|_| AppState::default());
+        let bitrate_1080_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("kbps")
+                .default_value("4000")
+                .min(100.)
+                .max(20000.)
+        });
+        let bitrate_720p_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("kbps")
+                .default_value("2500")
+                .min(100.)
+                .max(20000.)
+        });
+        let bitrate_480p_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("kbps")
+                .default_value("1200")
+                .min(100.)
+                .max(20000.)
+        });
         let fps_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("fps")
@@ -60,6 +84,45 @@ impl MainWindow {
                     &state,
                     |_: &mut Self, _: Entity<AppState>, cx: &mut Context<Self>| {
                         cx.notify();
+                    },
+                ),
+                cx.subscribe_in(
+                    &bitrate_1080_input,
+                    window,
+                    |v, input, e: &InputEvent, _w, cx| {
+                        if matches!(e, InputEvent::Change)
+                            && let Ok(n) = input.read(cx).unmask_value().parse::<u32>()
+                        {
+                            v.state
+                                .update(cx, |s, _| s.bitrates_kbps[0] = n.clamp(100, 20000));
+                            cx.notify();
+                        }
+                    },
+                ),
+                cx.subscribe_in(
+                    &bitrate_720p_input,
+                    window,
+                    |v, input, e: &InputEvent, _w, cx| {
+                        if matches!(e, InputEvent::Change)
+                            && let Ok(n) = input.read(cx).unmask_value().parse::<u32>()
+                        {
+                            v.state
+                                .update(cx, |s, _| s.bitrates_kbps[1] = n.clamp(100, 20000));
+                            cx.notify();
+                        }
+                    },
+                ),
+                cx.subscribe_in(
+                    &bitrate_480p_input,
+                    window,
+                    |v, input, e: &InputEvent, _w, cx| {
+                        if matches!(e, InputEvent::Change)
+                            && let Ok(n) = input.read(cx).unmask_value().parse::<u32>()
+                        {
+                            v.state
+                                .update(cx, |s, _| s.bitrates_kbps[2] = n.clamp(100, 20000));
+                            cx.notify();
+                        }
                     },
                 ),
                 cx.subscribe_in(&fps_input, window, |v, input, e: &InputEvent, _w, cx| {
@@ -101,6 +164,9 @@ impl MainWindow {
             ];
             Self {
                 state,
+                bitrate_1080_input,
+                bitrate_720p_input,
+                bitrate_480p_input,
                 fps_input,
                 seg_input,
                 audio_input,

@@ -36,17 +36,35 @@ pub fn render(
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "未选择".into());
 
+    let bitrate_inputs = [
+        &v.bitrate_1080_input,
+        &v.bitrate_720p_input,
+        &v.bitrate_480p_input,
+    ];
     let mut variants = div().flex().flex_col().gap_2();
     for (i, name) in ["1080p", "720p", "480p"].iter().enumerate() {
         variants = variants.child(
-            Checkbox::new(SharedString::from(format!("variant-{name}")))
-                .label(*name)
-                .checked(s.enabled_variants[i])
-                .disabled(busy)
-                .on_click(cx.listener(move |v, checked: &bool, _, cx| {
-                    v.state.update(cx, |s, _| s.enabled_variants[i] = *checked);
-                    cx.notify();
-                })),
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    Checkbox::new(SharedString::from(format!("variant-{name}")))
+                        .label(*name)
+                        .checked(s.enabled_variants[i])
+                        .disabled(busy)
+                        .on_click(cx.listener(move |v, checked: &bool, _, cx| {
+                            v.state.update(cx, |s, _| s.enabled_variants[i] = *checked);
+                            cx.notify();
+                        })),
+                )
+                // 各档码率(kbps):下标与 enabled_variants 一致(1080p/720p/480p)
+                .child(
+                    NumberInput::new(bitrate_inputs[i])
+                        .disabled(busy)
+                        .w(px(110.)),
+                )
+                .child("kbps"),
         );
     }
 
