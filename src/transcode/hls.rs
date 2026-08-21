@@ -19,12 +19,14 @@ pub fn var_stream_map(job: &JobConfig, has_audio: bool) -> String {
 
 /// hls muxer 私有选项字典,经 Output::write_header_with 传入。
 pub fn muxer_options(job: &JobConfig, has_audio: bool) -> Dictionary<'static> {
-    let root = job.output_root();
-    let seg = root
-        .join("%v")
-        .join(format!("{}_%05d.m4s", job.segment_prefix()))
-        .to_string_lossy()
-        .into_owned();
+    // %v/%05d 是 ffmpeg 的格式占位符而非路径组件,模板须按字符串拼、统一用 /:
+    // Windows 下 PathBuf::join 会引入 \(测试断言与 playlist URL 语义都不认),
+    // 而 ffmpeg 在所有平台都接受 /,故把 root 的分隔符也归一化
+    let seg = format!(
+        "{}/%v/{}_%05d.m4s",
+        job.output_root().to_string_lossy().replace('\\', "/"),
+        job.segment_prefix()
+    );
     let vsm = var_stream_map(job, has_audio);
     let mut d = Dictionary::new();
     d.set("hls_time", &job.segment_secs.to_string());
