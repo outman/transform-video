@@ -2,6 +2,18 @@ use ffmpeg_next::Dictionary;
 
 use crate::transcode::job::JobConfig;
 
+/// 将本地路径转换为 FFmpeg 的 file URL。
+///
+/// Windows 盘符路径形如 `C:/...`，若作为裸 URL 传给不同构建配置的
+/// FFmpeg，可能被当成协议名。显式使用 `file:` 可避免依赖 HAVE_DOS_PATHS。
+fn local_file_url(path: &std::path::Path) -> String {
+    local_file_url_from_str(&path.to_string_lossy())
+}
+
+fn local_file_url_from_str(path: &str) -> String {
+    format!("file:{}", path.replace('\\', "/"))
+}
+
 /// 复刻脚本 -var_stream_map:视频流共享 audio 组,纯音频变体默认启用。
 /// has_audio=false 时无音频变体(对应 -map 0:a? 的可选语义)。
 pub fn var_stream_map(job: &JobConfig, has_audio: bool) -> String {
@@ -22,11 +34,12 @@ pub fn muxer_options(job: &JobConfig, has_audio: bool) -> Dictionary<'static> {
     // %v/%05d 是 ffmpeg 的格式占位符而非路径组件,模板须按字符串拼、统一用 /:
     // Windows 下 PathBuf::join 会引入 \(测试断言与 playlist URL 语义都不认),
     // 而 ffmpeg 在所有平台都接受 /,故把 root 的分隔符也归一化
-    let seg = format!(
+    let seg_path = format!(
         "{}/%v/{}_%05d.m4s",
         job.output_root().to_string_lossy().replace('\\', "/"),
         job.segment_prefix()
     );
+    let seg = local_file_url_from_str(&seg_path);
     let vsm = var_stream_map(job, has_audio);
     let mut d = Dictionary::new();
     d.set("hls_time", &job.segment_secs.to_string());
@@ -43,6 +56,11 @@ pub fn muxer_options(job: &JobConfig, has_audio: bool) -> Dictionary<'static> {
 /// 输出 URL 模式:hls muxer 依 %v 生成各变体 playlist。
 pub fn output_pattern(job: &JobConfig) -> std::path::PathBuf {
     job.output_root().join("%v").join("index.m3u8")
+}
+
+/// 供 HLS muxer 使用的输出 URL。文件系统检查仍使用 output_pattern 的 PathBuf。
+pub fn output_url(job: &JobConfig) -> String {
+    local_file_url(&output_pattern(job))
 }
 
 #[cfg(test)]
@@ -93,8 +111,16 @@ mod tests {
         assert_eq!(d.get("master_pl_name"), Some("master.m3u8"));
         assert_eq!(
             d.get("hls_segment_filename").unwrap(),
-            "/tmp/out/L3-考点4/%v/L3-考点4_%05d.m4s"
+            "file:/tmp/out/L3-考点4/%v/L3-考点4_%05d.m4s"
         );
         assert!(d.get("var_stream_map").unwrap().contains("name:1080p"));
+    }
+
+    #[test]
+    fn local_file_url_normalizes_windows_drive_path() {
+        assert_eq!(
+            local_file_url_from_str(r"C:\Users\runneradmin\AppData\Local\Temp\out.m3u8"),
+            "file:C:/Users/runneradmin/AppData/Local/Temp/out.m3u8"
+        );
     }
 }
