@@ -11,6 +11,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/dist/TransformVideo.app"
 ZIP="$ROOT/dist/transform-video-macos.zip"
+NOTARY_RESULT=""
 
 for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
   if [ -z "${!var:-}" ]; then
@@ -30,6 +31,7 @@ CERT_P12="$TMP_DIR/certificate.p12"
 cleanup() {
   security delete-keychain "$KEYCHAIN" 2>/dev/null || true
   rm -f "$CERT_P12"
+  [ -z "$NOTARY_RESULT" ] || rm -f "$NOTARY_RESULT"
 }
 trap cleanup EXIT
 echo "$APPLE_CERTIFICATE" | base64 --decode -o "$CERT_P12"
@@ -60,16 +62,34 @@ echo "==> 签名 .app(hardened runtime + timestamp)..."
 codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
-# --- 公证:提交当前 zip,通过后 staple 回 .app 并重新打包 ---
+# package-macos.sh 生成的 zip 仍包含 ad-hoc 签名版本。正式签名后必须先重打包，
+# 否则本地验证的是新 app，Apple 收到的却是旧 zip，公证必然返回 Invalid。
+echo "==> 重新打包正式签名后的 .app..."
+rm -f "$ZIP"
+# -y 保留 Frameworks 里的短名软链
+(cd "$ROOT/dist" && zip -qry "transform-video-macos.zip" "TransformVideo.app")
+
+# --- 公证:提交正式签名后的 zip,通过后 staple 回 .app 并最终重新打包 ---
 echo "==> 提交公证(--wait 会等待 Apple 处理,几分钟到几十分钟属正常)..."
+NOTARY_RESULT="$(mktemp "$TMP_DIR/notary-result.json.XXXXXX")"
 xcrun notarytool submit "$ZIP" \
-  --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+  --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+  --wait --output-format json | tee "$NOTARY_RESULT"
+
+NOTARY_STATUS="$(plutil -extract status raw -o - "$NOTARY_RESULT")"
+NOTARY_ID="$(plutil -extract id raw -o - "$NOTARY_RESULT")"
+if [ "$NOTARY_STATUS" != "Accepted" ]; then
+  echo "错误:Apple 公证失败(status=$NOTARY_STATUS, id=$NOTARY_ID),以下为公证日志:" >&2
+  xcrun notarytool log "$NOTARY_ID" \
+    --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
+  exit 1
+fi
+
 echo "==> staple 公证票据..."
 xcrun stapler staple "$APP"
 xcrun stapler validate "$APP"
 spctl --assess --type execute --verbose "$APP"
 
 rm -f "$ZIP"
-# -y 保留 Frameworks 里的短名软链
 (cd "$ROOT/dist" && zip -qry "transform-video-macos.zip" "TransformVideo.app")
 echo "签名公证完成:$ZIP"
