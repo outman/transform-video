@@ -1,0 +1,80 @@
+# 发布工作流:push v* tag 时构建 macOS 与 Windows 双平台包,创建 GitHub Release
+# 并附上两个 zip。手动触发只构建上传 artifact,不发布(release job 以 tag 为条件)。
+# windows job 另上传 gpui_windows 的 shaders_bytes.rs(fxc 预编译产物,只能在
+# Windows 宿主生成),供 macOS 交叉构建回填(scripts/build-windows-macos.sh 的前置;
+# zed 依赖版本变化时重新触发本工作流取新文件)。
+# 触发不与 ci.yml 重叠:ci 只在 push main/PR 跑,这里走手动与 tag。
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # job id 与 ci.yml 保持同名,rust-cache 缓存可直接复用
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # brew 的 ffmpeg 是 vendor 闭包拷贝的来源,仍需安装
+      - run: brew install ffmpeg pkgconf
+      - run: ./scripts/vendor-macos.sh
+      # 发布不重跑测试:tag 指向的 commit 已在 ci.yml 的 main/PR 流水线测过
+      - name: Release build
+        run: cargo build --release
+        env:
+          FFMPEG_DIR: ${{ github.workspace }}/vendor/macos
+          RUSTFLAGS: "-C link-arg=-Wl,-rpath,${{ github.workspace }}/vendor/macos/lib"
+      - run: ./scripts/package-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transform-video-macos
+          path: dist/transform-video-macos.zip
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      FFMPEG_DIR: '${{ github.workspace }}\vendor\windows'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pwsh ./scripts/vendor-windows.ps1
+      - run: cargo build --release
+      - run: pwsh ./scripts/package-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transform-video-win64
+          path: dist/transform-video-win64.zip
+      # macOS 交叉构建注入 OUT_DIR 用(18 个 *_BYTES 常量,~200KB)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gpui-shaders-bytes
+          path: target/release/build/gpui_windows-*/out/shaders_bytes.rs
+          if-no-files-found: error
+
+  release:
+    needs: [macos, windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: transform-video-*
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
