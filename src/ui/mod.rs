@@ -1,6 +1,7 @@
 pub mod main_window;
 pub mod progress;
 pub mod settings;
+pub mod widgets;
 
 use std::path::Path;
 

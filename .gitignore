@@ -2,3 +2,4 @@
 .worktrees/
 vendor/
 dist/
+.DS_Store

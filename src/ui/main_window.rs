@@ -11,6 +11,9 @@ use crate::ui::{progress, settings};
 const ENCODER_AUTO: &str = "自动(硬件优先)";
 const ENCODER_SOFTWARE: &str = "强制软编(libx264)";
 
+// 原生菜单(macOS 菜单栏)「退出」分发到应用的 action
+actions!(transform_video, [QuitApp]);
+
 pub struct MainWindow {
     pub state: Entity<AppState>,
     pub bitrate_1080_input: Entity<InputState>,
@@ -191,8 +194,8 @@ impl Render for MainWindow {
                     .flex_1()
                     .flex()
                     .flex_col()
-                    .p_4()
-                    .gap_4()
+                    .p_3()
+                    .gap_3()
                     .overflow_y_scroll()
                     .child(settings::render(self, window, cx))
                     .child(progress::render(self, cx)),

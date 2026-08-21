@@ -190,6 +190,20 @@ impl AppState {
         cx.notify();
     }
 
+    /// 重置:清空输入/输出选择、进度与日志;分辨率/码率等参数保持不动。
+    /// 转码进行中不可调用(按钮置灰),句柄不受影响。
+    pub fn reset(&mut self, cx: &mut Context<Self>) {
+        self.input_path = None;
+        self.output_dir = None;
+        self.status = Status::Idle;
+        self.percent = 0.0;
+        self.elapsed_secs = 0.0;
+        self.eta_secs = 0.0;
+        self.logs.clear();
+        self.output_root = None;
+        cx.notify();
+    }
+
     pub fn busy(&self) -> bool {
         self.handle.as_ref().is_some_and(|c| c.0.is_some())
     }

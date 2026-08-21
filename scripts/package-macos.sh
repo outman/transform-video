@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 组装 Transform Video.app:vendor 构建的二进制 + vendor 真身 dylib + rpath + ad-hoc 签名。
+# 组装 TransformVideo.app:vendor 构建的二进制 + vendor 真身 dylib + rpath + ad-hoc 签名。
 # 前置:用 vendor/macos 作为 FFMPEG_DIR 的 release 构建(见 vendor-macos.sh 末尾打印的命令)。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/dist/Transform Video.app"
+APP="$ROOT/dist/TransformVideo.app"
 rm -rf "$APP" "$ROOT/dist/transform-video-macos.zip"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks"
 
@@ -47,7 +47,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <dict>
   <key>CFBundleExecutable</key><string>TransformVideo</string>
   <key>CFBundleIdentifier</key><string>com.outman.transform-video</string>
-  <key>CFBundleName</key><string>Transform Video</string>
+  <key>CFBundleName</key><string>TransformVideo</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>0.1.0</string>
@@ -59,5 +59,5 @@ PLIST
 
 codesign --force --deep --sign - "$APP"
 # -y:保留 Frameworks 里的短名软链(不解引用成重复大文件)
-(cd "$ROOT/dist" && zip -qry "transform-video-macos.zip" "Transform Video.app")
+(cd "$ROOT/dist" && zip -qry "transform-video-macos.zip" "TransformVideo.app")
 echo "打包完成:$ROOT/dist/transform-video-macos.zip"

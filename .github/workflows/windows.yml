@@ -1,0 +1,39 @@
+# 独立的 Windows 打包工作流:vendor ffmpeg → release 构建 → 压 zip 上传。
+# 另上传 gpui_windows 的 shaders_bytes.rs(fxc 预编译产物,只能在 Windows 宿主生成),
+# 供 macOS 交叉构建回填(scripts/build-windows-macos.sh 的前置;zed 依赖版本变化时
+# 重新触发本工作流取新文件)。
+# 触发不与 ci.yml 的 windows job 重叠:ci 只在 push main/PR 跑,这里走手动与 tag。
+name: Windows package
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      FFMPEG_DIR: '${{ github.workspace }}\vendor\windows'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pwsh ./scripts/vendor-windows.ps1
+      - run: cargo build --release
+      - run: pwsh ./scripts/package-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transform-video-win64
+          path: dist/transform-video-win64.zip
+      # macOS 交叉构建注入 OUT_DIR 用(18 个 *_BYTES 常量,~200KB)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gpui-shaders-bytes
+          path: target/release/build/gpui_windows-*/out/shaders_bytes.rs
+          if-no-files-found: error
