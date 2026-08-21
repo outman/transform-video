@@ -7085,6 +7085,7 @@ name = "transform-video"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "embed-resource",
  "ffmpeg-next",
  "gpui",
  "gpui-component",

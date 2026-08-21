@@ -63,13 +63,14 @@ if [ -f "$SHADERS" ]; then
   outs=("$ROOT"/target/$TARGET/release/build/gpui_windows-*/out)
   inject=0
   [ ${#outs[@]} -eq 0 ] && inject=1
-  for out in "${outs[@]}"; do
+  # bash 3.2(set -u)下空数组要带守卫展开
+  for out in ${outs[@]+"${outs[@]}"}; do
     if [ ! -f "$out/shaders_bytes.rs" ] || ! cmp -s "$SHADERS" "$out/shaders_bytes.rs"; then
       inject=1
     fi
   done
   # 已注入过但内容变了(zed rev 更新):cargo 感知不到该文件变化,必须清缓存防陈旧产物
-  for out in "${outs[@]}"; do
+  for out in ${outs[@]+"${outs[@]}"}; do
     if [ -f "$out/shaders_bytes.rs" ] && ! cmp -s "$SHADERS" "$out/shaders_bytes.rs"; then
       echo "shaders_bytes.rs 已更新,清空交叉编译缓存重建:$ROOT/target/$TARGET"
       rm -rf "$ROOT/target/$TARGET"

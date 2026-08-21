@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/dist/TransformVideo.app"
 rm -rf "$APP" "$ROOT/dist/transform-video-macos.zip"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources"
+cp "$ROOT/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 cp "$ROOT/target/release/transform-video" "$APP/Contents/MacOS/TransformVideo"
 # vendor/macos/lib 里软链与真身并存:真身是全版本名文件,软链是短名别名。不能直接
@@ -49,6 +50,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>com.outman.transform-video</string>
   <key>CFBundleName</key><string>TransformVideo</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>0.1.0</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
