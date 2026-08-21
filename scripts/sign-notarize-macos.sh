@@ -45,8 +45,14 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN
 security list-keychain -d user -s "$KEYCHAIN"
 
 echo "==> 查找签名身份..."
-IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep 'Developer ID Application' | head -1 | sed -E 's/.*"(.*)".*/\1/')"
-[ -n "$IDENTITY" ] || { echo "错误:keychain 中未找到 Developer ID Application 证书(证书类型不对?)" >&2; exit 1; }
+# 原样打印身份列表,失败时日志能直接看出 keychain 里到底导入了什么
+echo '$ security find-identity -v -p codesigning:'
+security find-identity -v -p codesigning "$KEYCHAIN" || true
+echo '$ security find-identity -p codesigning (含未受信链证书):'
+security find-identity -p codesigning "$KEYCHAIN" || true
+# 不用 -v:CI runner 上常缺中间证书导致链不受信,-v 会把身份过滤掉
+IDENTITY="$(security find-identity -p codesigning "$KEYCHAIN" | grep 'Developer ID Application' | head -1 | sed -E 's/.*"(.*)".*/\1/' || true)"
+[ -n "$IDENTITY" ] || { echo "错误:keychain 中未找到 Developer ID Application 证书;请对照上方列表检查(若两次都为空,说明 p12 里只有私钥没有证书,需从钥匙串访问导出整张证书重新生成 secret)" >&2; exit 1; }
 echo "签名身份:$IDENTITY"
 
 # --- 正式签名:hardened runtime + 安全时间戳,公证的硬性要求 ---
