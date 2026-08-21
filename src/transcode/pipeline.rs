@@ -107,9 +107,7 @@ fn open_input(config: &JobConfig) -> anyhow::Result<format::context::Input> {
 
 /// hls muxer 设 AVFMT_NOFILE(分段文件自管),不能 avio_open,
 /// 因此手工分配输出 context 再包装(等价 CLI 的 `-f hls <url>`)。
-/// URL 使用显式 file 协议且统一为 `/`：FFmpeg 推导 fMP4 init 段与
-/// master 位置时按 URL 分割目录，且部分 Windows 构建不会把盘符路径
-/// 识别为本地文件。
+/// URL 统一为 `/`，便于 FFmpeg 推导 fMP4 init 段与 master 位置。
 fn alloc_hls_output(url: &str) -> anyhow::Result<format::context::Output> {
     let c_url = CString::new(url.as_bytes()).map_err(|_| anyhow!("输出路径含非法字符:{}", url))?;
     let mut ps = std::ptr::null_mut();
@@ -1038,7 +1036,7 @@ impl Run<'_> {
 // 入口
 // ---------------------------------------------------------------------------
 
-fn transcode_inner(
+fn transcode_inner_impl(
     config: &JobConfig,
     tx: &Sender<TranscodeEvent>,
     cancel: &AtomicBool,
@@ -1159,6 +1157,57 @@ fn transcode_inner(
     run.run(&mut ictx, v_idx, &mut v_dec, a_idx, &mut a_dec)?;
     run.flush(&mut v_dec, &mut a_dec)?;
     Ok(config.output_root())
+}
+
+#[cfg(not(windows))]
+fn transcode_inner(
+    config: &JobConfig,
+    tx: &Sender<TranscodeEvent>,
+    cancel: &AtomicBool,
+) -> Result<PathBuf, Stop> {
+    transcode_inner_impl(config, tx, cancel)
+}
+
+/// FFmpeg HLS 的 ff_mkdir_p 会把绝对盘符路径中的 `C:` 也交给 mkdir，
+/// 导致 `%v` 位于子目录时在 Windows 返回 EACCES。转码期间切到
+/// 输出父目录，让 muxer 只看到 `./<stem>/%v/...` 形式的相对路径。
+#[cfg(windows)]
+fn transcode_inner(
+    config: &JobConfig,
+    tx: &Sender<TranscodeEvent>,
+    cancel: &AtomicBool,
+) -> Result<PathBuf, Stop> {
+    static CWD_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+    struct RestoreCurrentDir(PathBuf);
+    impl Drop for RestoreCurrentDir {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.0);
+        }
+    }
+
+    let lock = CWD_LOCK.get_or_init(|| std::sync::Mutex::new(()));
+    let _lock = lock
+        .lock()
+        .map_err(|_| anyhow!("Windows HLS 工作目录锁已损坏"))?;
+    let original_dir = std::env::current_dir().context("无法读取当前工作目录")?;
+    let output_dir = if config.output_dir.is_absolute() {
+        config.output_dir.clone()
+    } else {
+        original_dir.join(&config.output_dir)
+    };
+    let output_root = output_dir.join(config.output_root().file_name().context("输出名为空")?);
+
+    let mut relative_config = config.clone();
+    if relative_config.input_format.is_none() && relative_config.input.is_relative() {
+        relative_config.input = original_dir.join(&relative_config.input);
+    }
+    relative_config.output_dir = PathBuf::from(".");
+
+    let _restore = RestoreCurrentDir(original_dir);
+    std::env::set_current_dir(&output_dir)
+        .with_context(|| format!("无法进入输出目录:{}", output_dir.display()))?;
+    transcode_inner_impl(&relative_config, tx, cancel).map(|_| output_root)
 }
 
 /// Ok(root) 表示成功;Err 为终止方式。

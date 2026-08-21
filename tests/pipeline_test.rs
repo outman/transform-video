@@ -52,7 +52,9 @@ fn run(
 fn transcodes_single_variant_without_audio() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = config(dir.path(), false);
+    let working_dir = std::env::current_dir().unwrap();
     let (result, rx) = run(&cfg, &AtomicBool::new(false));
+    assert_eq!(std::env::current_dir().unwrap(), working_dir);
     let root = result.expect("应成功");
     assert!(root.join("master.m3u8").is_file());
     let v = root.join("480p");

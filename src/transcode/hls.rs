@@ -2,16 +2,13 @@ use ffmpeg_next::Dictionary;
 
 use crate::transcode::job::JobConfig;
 
-/// 将本地路径转换为 FFmpeg 的 file URL。
-///
-/// Windows 盘符路径形如 `C:/...`，若作为裸 URL 传给不同构建配置的
-/// FFmpeg，可能被当成协议名。显式使用 `file:` 可避免依赖 HAVE_DOS_PATHS。
-fn local_file_url(path: &std::path::Path) -> String {
-    local_file_url_from_str(&path.to_string_lossy())
+/// FFmpeg HLS 路径统一使用 `/`，便于 muxer 按 URL 分割目录。
+fn hls_path(path: &std::path::Path) -> String {
+    hls_path_from_str(&path.to_string_lossy())
 }
 
-fn local_file_url_from_str(path: &str) -> String {
-    format!("file:{}", path.replace('\\', "/"))
+fn hls_path_from_str(path: &str) -> String {
+    path.replace('\\', "/")
 }
 
 /// 复刻脚本 -var_stream_map:视频流共享 audio 组,纯音频变体默认启用。
@@ -39,7 +36,7 @@ pub fn muxer_options(job: &JobConfig, has_audio: bool) -> Dictionary<'static> {
         job.output_root().to_string_lossy().replace('\\', "/"),
         job.segment_prefix()
     );
-    let seg = local_file_url_from_str(&seg_path);
+    let seg = hls_path_from_str(&seg_path);
     let vsm = var_stream_map(job, has_audio);
     let mut d = Dictionary::new();
     d.set("hls_time", &job.segment_secs.to_string());
@@ -60,7 +57,7 @@ pub fn output_pattern(job: &JobConfig) -> std::path::PathBuf {
 
 /// 供 HLS muxer 使用的输出 URL。文件系统检查仍使用 output_pattern 的 PathBuf。
 pub fn output_url(job: &JobConfig) -> String {
-    local_file_url(&output_pattern(job))
+    hls_path(&output_pattern(job))
 }
 
 #[cfg(test)]
@@ -111,16 +108,16 @@ mod tests {
         assert_eq!(d.get("master_pl_name"), Some("master.m3u8"));
         assert_eq!(
             d.get("hls_segment_filename").unwrap(),
-            "file:/tmp/out/L3-考点4/%v/L3-考点4_%05d.m4s"
+            "/tmp/out/L3-考点4/%v/L3-考点4_%05d.m4s"
         );
         assert!(d.get("var_stream_map").unwrap().contains("name:1080p"));
     }
 
     #[test]
-    fn local_file_url_normalizes_windows_drive_path() {
+    fn hls_path_normalizes_windows_drive_path() {
         assert_eq!(
-            local_file_url_from_str(r"C:\Users\runneradmin\AppData\Local\Temp\out.m3u8"),
-            "file:C:/Users/runneradmin/AppData/Local/Temp/out.m3u8"
+            hls_path_from_str(r"C:\Users\runneradmin\AppData\Local\Temp\out.m3u8"),
+            "C:/Users/runneradmin/AppData/Local/Temp/out.m3u8"
         );
     }
 }
